@@ -1,0 +1,152 @@
+前置要求：
+1）Building Spark using Maven requires Maven 3.3.9 or newer and Java 7+
+2）设置maven内存：export MAVEN_OPTS="-Xmx2g -XX:ReservedCodeCacheSize=512m"
+
+mvn编译命令：
+./build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests clean package
+	前提：需要对maven有一定的了解(pom.xml)
+
+源码的pom.xml文件：  
+<properties>
+    <hadoop.version>2.2.0</hadoop.version>
+    <protobuf.version>2.5.0</protobuf.version>
+    <yarn.version>${hadoop.version}</yarn.version>
+</properties>
+
+<profile>
+  <id>hadoop-2.6</id>
+  <properties>
+    <hadoop.version>2.6.4</hadoop.version>
+    <jets3t.version>0.9.3</jets3t.version>
+    <zookeeper.version>3.4.6</zookeeper.version>
+    <curator.version>2.6.0</curator.version>
+  </properties>
+</profile>
+--------------------------------------------------------------------
+（1）maven编译
+./build/mvn -Pyarn -Phadoop-2.6 -Phive -Phive-thriftserver -Dhadoop.version=2.6.0-cdh5.7.0 -DskipTests clean package
+
+（2）spark内置编译方式，编译后可以部署
+#推荐使用
+./dev/make-distribution.sh --name 2.6.0-cdh5.7.0 --tgz  -Pyarn -Phadoop-2.6 -Phive -Phive-thriftserver -Dhadoop.version=2.6.0-cdh5.7.0  --skip-java-test
+./dev/make-distribution.sh  --name cdh2.6.0-cdh5.7.0 --skip-java-test --tgz -Pyarn -Dhadoop.version=2.6.0-cdh5.7.0  -Dscala-2.12 -Phive -Phive-thriftserver -rf :spark-sql_2.10
+./dev/make-distribution.sh --name 2.6.0-cdh5.7.0 --tgz  -Pyarn -Phadoop-2.6 -Phive -Phive-thriftserver -X -U
+
+编译错误：
+（1）spark-launcher,hadoop clinet找不到
+解决：pom.xml中添加
+<repository>
+	<id>cloudera</id>
+	<url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+</repository>
+
+<repository>
+      <id>central</id>
+      <!-- This should be at top, it makes maven try the central repo first and then others and hence faster dep resolution -->
+      <name>Maven Repository</name>
+      <url>https://repo.maven.apache.org/maven2</url>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+
+
+(2)设置maven参数
+export MAVEN_OPTS="-Xmx2g -XX:ReservedCodeCacheSize=512m -XX:MaxPermSize=512M"
+
+(3)如果scala版本是2.10
+./dev/change-scala-version.sh 2.12
+
+(4)was cached in the local repository
+编译后面加 -U
+
+-X 更详细的编译信息
+
+（5）Failed to execute goal net.alchim31.maven:scala-maven-plugin:3.2.2:testCompile
+<dependency>
+        <groupId>net.alchim31.maven</groupId>
+　　   <artifactId>scala-maven-plugin</artifactId>
+       <version>3.2.0</version>
+</dependency>
+
+
+编译完成后：
+spark-$VERSION-bin-$NAME.tgz
+例如：spark-2.1.0-bin-2.6.0-cdh5.7.0.tgz
+
+配置SPARK_HOME
+	export SPARK_HOME=
+	export PATH=$SPARK_HOME/bin:$PATH
+	
+./spark-shell --master local[2]    local模式
+                            [k]k个线程
+
+Spark Standalone模式的架构和Hadoop HDFS/YARN很类似的
+模式：（1 master + n worker）
+
+1）
+spark-env.sh
+SPARK_MASTER_HOST=hadoop001（localhost）
+SPARK_WORKER_CORES=2
+SPARK_WORKER_MEMORY=2g
+SPARK_WORKER_INSTANCES=1（启动实例，1个worker）
+
+多个worker配置：
+hadoop1 : master
+hadoop2 : worker
+hadoop3 : worker
+hadoop4 : worker
+...
+hadoop10 : worker
+
+slaves:
+hadoop2
+hadoop3
+hadoop4
+....
+hadoop10
+
+==> start-all.sh   会在 hadoop1机器上启动master进程，在slaves文件配置的所有hostname的机器上启动worker进程
+standalone模式启动：spark-shell --master spark://hadoop001:7077
+
+Spark WordCount统计
+val file = spark.sparkContext.textFile("file:///home/hadoop/data/wc.txt")
+val wordCounts = file.flatMap(line => line.split(",")).map((word => (word, 1))).reduceByKey(_ + _)
+wordCounts.collect
+
+
+监控页面：localhost:4040
+
+    <repository>
+	<id>cloudera</id>
+	<url>https://repository.cloudera.com/artifactory/cloudera-repos/</url>
+    </repository>
+	<repository>
+	<id>mvnrepository</id>
+	<url>https://mvnrepository.com/artifact/net.alchim31.maven/scala-maven-plugin</url>
+    </repository>
+	
+	<pluginRepository>
+          <id>mvnrepository</id>
+          <url>https://mvnrepository.com/artifact/net.alchim31.maven/scala-maven-plugin</url>
+        </pluginRepository>
+	
+	<groupId>net.alchim31.maven</groupId>
+    <artifactId>scala-maven-plugin</artifactId>
+    <!-- 3.3.1 won't work with zinc; fails to find javac from java.home -->
+    <version>3.1.3</version>
+
+
+
+
+
+
+
+
+
+
+
+

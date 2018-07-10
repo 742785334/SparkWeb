@@ -1,0 +1,93 @@
+Hadoop集成Spring
+
+<dependency>
+	<groupId>org.springframework.data</groupId>
+	<artifactId>spring-data-hadoop</artifactId>
+	<version>2.5.0.RELEASE</version>
+</dependency>
+
+resources包
+beans.xml中从官网拷贝内容粘贴（https://docs.spring.io/spring-hadoop/docs/2.5.0.RELEASE/reference/html/springandhadoop-config.html）
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:hdp="http://www.springframework.org/schema/hadoop"
+       xsi:schemaLocation="
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/hadoop
+        http://www.springframework.org/schema/hadoop/spring-hadoop.xsd
+http://www.springframework.org/schema/beans ">
+
+    <hdp:configuration/>
+</beans>
+
+---------------------------------------------
+
+<hdp:configuration id="hadoopConfiguration">
+	fs.defaultFS=hdfs://iz2zef94dnmkl8kf3l63r9z:8020
+</hdp:configuration>
+
+<hdp:file-system id="fileSystem" configuration-ref="hadoopConfiguration" user="root"/>
+
+
+可变的地方放进文件中application.properties
+spring.hadoop.fsUri=fs.defaultFS=hdfs://hadoop000:8020
+
+<hdp:configuration id="hadoopConfiguration>  
+	${spring.hadoop.fsUri}
+</hdp:configuration>
+
+<context:property-placeholder location="application.properties"/>
+
+fileSystem通过spring注入进来，其他方式不变
+
+使用Spring Hadoop访问HDFS系统
+Test下创建spring包，创建springHadoopApp
+
+private ApplicationContext ctx;
+private FileSystem fileSystem;
+
+setup()
+{ 
+   ctx = new ClassPathXmlApplicationContext("beans.xml");
+   fileSystem = (FileSystem)ctx.getBean("fileSystem");
+}
+tearDown(){
+   ctx = null;
+}
+//创建文件夹
+public void testMkdir() throws Exception{
+	fileSystem.mkdirs(new Path("/springhdfs/"));
+}
+
+//读取hdfs文件内容
+public void testCat() throws Exception{
+	FSDataInputStream in = fileSystem.open(new Path("/springhdfs/hello.txt"));
+	IOUtiles.copyBytes(in,System.out,1024);
+	in.close();
+}
+
+Springboot访问hdfs
+ <dependency>
+      <groupId>org.springframework.data</groupId>
+      <artifactId>spring-data-hadoop-boot</artifactId>
+      <version>2.5.0.RELEASE-hadoop25</version>
+ </dependency>
+
+@SpringBootApplication
+public class springBootHDFSApp implements CommandLineRunner
+
+@Autowired
+FsShell fsShell;//有很多方法
+
+public void run(String... strings) throws Exception{
+	for(FileStatus fileStatus:fsShell.lsr("/springhdfs")){
+		打印
+	}
+}
+
+public static void main(String[] args){
+	SpringApplication.run(SpringBootHDFSApp.class,args);
+}
+
+自己熟悉MapReduce，Hive

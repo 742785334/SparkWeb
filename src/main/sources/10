@@ -1,0 +1,81 @@
+【区分】
+即席查询：用户方决定的
+普通查询
+
+Load Data
+1) RDD    DataFrame/Dataset
+2) Local   Cloud(HDFS/S3)
+
+
+将数据加载成RDD
+val masterLog = sc.textFile("file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/logs/spark-hadoop-org.apache.spark.deploy.master.Master-1-hadoop001.out")
+val workerLog = sc.textFile("file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/logs/spark-hadoop-org.apache.spark.deploy.worker.Worker-1-hadoop001.out")
+val allLog = sc.textFile("file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/logs/*out*")
+
+masterLog.count
+workerLog.count
+allLog.count
+
+存在的问题：使用使用SQL进行查询呢？
+
+//导入Row
+import org.apache.spark.sql.Row
+val masterRDD = masterLog.map(x => Row(x))
+//定义schema信息
+import org.apache.spark.sql.types._
+val schemaString = "line"
+
+val fields = schemaString.split(" ").map(fieldName => StructField(fieldName, StringType, nullable = true))
+val schema = StructType(fields)
+//创建DataFrame
+val masterDF = spark.createDataFrame(masterRDD, schema)
+masterDF.show
+
+//把DataFrame注册成一个表
+masterDF.createOrReplaceTempView("master_logs")
+
+//操作
+spark.sql("xxx")
+
+JSON/Parquet
+val usersDF = spark.read.format("parquet").load("file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/examples/src/main/resources/users.parquet")
+usersDF.show
+
+
+spark.sql("select * from  parquet.`file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/examples/src/main/resources/users.parquet`").show
+
+Drill 大数据处理框架
+
+
+从Cloud读取数据: HDFS/S3
+val hdfsRDD = sc.textFile("hdfs://path/file")
+val s3RDD = sc.textFile("s3a://bucket/object")
+	s3a/s3n
+
+spark.read.format("text").load("hdfs://path/file")
+spark.read.format("text").load("s3a://bucket/object")
+
+
+DataFrame = RDD + Schema
+
+RDD & DataFrame 底层通过Catalyst进行优化操作
+
+
+val df=spark.read.format("json").load("file:///home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/examples/src/main/resources/people.json")
+
+df.show
+
+
+explode方法（sparksql中）
+内嵌json可以通过层级的“.”进行访问
+
+TPC-DS：工业界性能
+
+
+spark-packages.org
+
+
+
+
+
+

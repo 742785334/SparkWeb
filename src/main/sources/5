@@ -1,0 +1,248 @@
+本章主要内容：
+1）从Hive平滑过渡到Spark SQL：SparkContext/HiveContext/SparkSession
+2）spark-shell/spark-sql
+3) thriftserver/beeline
+4）jdbc方式编程
+
+1.x版本：SQLContext，HiveContext
+2.x版本：SparkSession
+
+idea创建scala项目
+<scala.version>2.11.8</scala.version>
+
+<dependency>
+	<groupId>org.apache.spark</groupId>
+	<artifactId>spark-sql_2.11</artifactId>
+	<version>2.1.0</version>
+</dependency>
+-----------------------------------------------------------------
+SQLContextApp
+(1)  
+def main(args:Array[String]){
+	//创建Context
+	val sparkConf = new SparkConf()
+	//在测试生产中，app的name和master通过脚本方式指定
+	sparkConf.setAppName("SQLContextApp").setMaster("local[2]")
+	
+	val sc = new SparkContext(sparkConf)
+	val sqlContext = new SQLContext(sc)
+	
+	//相关的处理
+	val path = args(0)//Edit Configuration中把值放进去 file:///Users/data/xxx
+	val people = sqlContext.read.format("json").load(path)
+	people.printSchema()
+	peole.show()
+	
+	//关闭资源
+	sc.stop
+}
+
+（2）mvn clean package -DskipTests
+
+（3）
+提交Spark Application到环境中运行
+spark-submit \
+--name SQLContextApp \
+--class com.demo.spark.scala.SQLContextApp \
+--master local[2] \
+/root/sql-1.0.jar \
+/home/hadoop/app/spark-2.1.0-bin-2.6.0-cdh5.7.0/examples/src/main/resources/people.json
+
+spark-submit --name SQLContextApp --class com.demo.spark.scala.SQLContextApp --master local[2] /root/sql-1.0.jar
+--------------------------------------------
+HiveContext
+
+<dependency>
+	<groupId>org.apache.spark</groupId>
+	<artifactId>spark-hive_2.11</artifactId>
+	<version>2.1.0</version>
+</dependency>
+
+
+def main(args:Array[String]){
+	//创建Context
+	val sparkConf = new SparkConf()
+	//在测试生产中，app的name和master通过脚本方式指定
+	sparkConf.setAppName("SQLContextApp").setMaster("local[2]")
+	
+	val sc = new SparkContext(sparkConf)
+	val hiveContext = new HiveContext(sc)
+	
+	//相关的处理
+	hiveContext.table("emp").show
+	
+	//关闭资源
+	sc.stop
+}
+
+使用时需要通过jars添加jar包
+提交测试
+spark-submit \
+--class com.imooc.spark.HiveContextApp \
+--master local[2] \
+--jars  mysql驱动包路径
+/home/hadoop/lib/sql-1.0.jar \
+
+注意：
+1）To use a HiveContext, you do not need to have an existing Hive setup(并不需要搭建Hive环境)
+2）hive-site.xml（只需要一个hive-site就可以）
+
+--------------------------------------------------------------------
+Spark2.x中spark SQL的入口点：sparksession
+模式：val spark = sparkSession.builder().appName("xxx").config("","").getOrCreate()
+
+SparkSessionApp
+
+def main(args:Array[String]){
+
+	val spark = sparkSession.builder().appName("xxx").config("",""),master("local[2]").getOrCreate()
+	val people = spark.read.json("")//spark.read.format(“”)
+	people.show()
+	spark.stop
+}
+----------------------------------------------------------------------
+sparkshell---->hive数据
+
+cp hive-site.xml spark的conf目录下
+<property>
+	<name>hive.metastore.schema.verification</name>
+	<value>false</value>
+</property>
+
+
+（1）启动：./spark-shell  --master  local[2]  --jars  ~/software/mysql-connector-java-5.1.7-bin.jar
+
+spark.sql("show tables").show
+spark.sql("select * from dept").show
+
+
+（2）启动：./spark-sql --master local[2] --jars ~/software/mysql-connector-java-5.1.7-bin.jar
+
+
+create table t(key string, value string);
+explain extended（详细地计划） select a.key*(2+3), b.value from  t a join t b on a.key = b.key and a.key > 3;
+
+分析spark sql 计划:
+
+== Parsed Logical Plan ==
+'Project [unresolvedalias(('a.key * (2 + 3)), None), 'b.value]
++- 'Join Inner, (('a.key = 'b.key) && ('a.key > 3))
+   :- 'UnresolvedRelation `t`, a
+   +- 'UnresolvedRelation `t`, b
+
+== Analyzed Logical Plan ==
+(CAST(key AS DOUBLE) * CAST((2 + 3) AS DOUBLE)): double, value: string
+Project [(cast(key#321 as double) * cast((2 + 3) as double)) AS (CAST(key AS DOUBLE) * CAST((2 + 3) AS DOUBLE))#325, value#324]
++- Join Inner, ((key#321 = key#323) && (cast(key#321 as double) > cast(3 as double)))
+   :- SubqueryAlias a
+   :  +- MetastoreRelation default, t
+   +- SubqueryAlias b
+      +- MetastoreRelation default, t
+
+== Optimized Logical Plan ==
+Project [(cast(key#321 as double) * 5.0) AS (CAST(key AS DOUBLE) * CAST((2 + 3) AS DOUBLE))#325, value#324]
++- Join Inner, (key#321 = key#323)
+   :- Project [key#321]
+   :  +- Filter (isnotnull(key#321) && (cast(key#321 as double) > 3.0))
+   :     +- MetastoreRelation default, t
+   +- Filter (isnotnull(key#323) && (cast(key#323 as double) > 3.0))
+      +- MetastoreRelation default, t
+
+== Physical Plan ==
+*Project [(cast(key#321 as double) * 5.0) AS (CAST(key AS DOUBLE) * CAST((2 + 3) AS DOUBLE))#325, value#324]
++- *SortMergeJoin [key#321], [key#323], Inner
+   :- *Sort [key#321 ASC NULLS FIRST], false, 0
+   :  +- Exchange hashpartitioning(key#321, 200)
+   :     +- *Filter (isnotnull(key#321) && (cast(key#321 as double) > 3.0))
+   :        +- HiveTableScan [key#321], MetastoreRelation default, t
+   +- *Sort [key#323 ASC NULLS FIRST], false, 0
+      +- Exchange hashpartitioning(key#323, 200)
+         +- *Filter (isnotnull(key#323) && (cast(key#323 as double) > 3.0))
+            +- HiveTableScan [key#323, value#324], MetastoreRelation default, t
+
+
+
+------------------------------------------------------------------------
+thriftserver/beeline(sbin目录)的使用
+1) 启动thriftserver: 默认端口是10000 ，可以修改
+2）启动beeline
+beeline -u jdbc:hive2://localhost:10000 -n hadoop
+
+（服务启动）
+修改thriftserver启动占用的默认端口号：
+./start-thriftserver.sh  --master local[2] --jars ~/software/mysql-connector-java-5.1.34.jar  --hiveconf hive.server2.thrift.port=14000 --files /usr/iop/4.2.0.0/hive/conf/hive-site.xml
+
+（客户端连接）
+beeline -u jdbc:hive2://localhost:14000 -n hadoop
+
+[错误]thriftserver没有启动只会在logs中产生日志，MySQLSyntaxErrorException: Specified key was too long; max key length is 767 bytes
+[解决方法]
+mysql> SET character_set_client = utf8 ;
+mysql> SET character_set_connection = utf8 ;
+mysql> SET character_set_database = utf8 ;
+mysql> SET character_set_results = utf8 ;  
+mysql> SET character_set_server = utf8 ; 
+mysql> SET NAMES 'utf8'; 
+
+
+thriftserver和普通的spark-shell/spark-sql有什么区别？
+1）spark-shell、spark-sql都是一个spark  application；
+2）thriftserver， 不管你启动多少个客户端(beeline/code)，永远都是一个spark application
+	解决了一个数据共享的问题，多个客户端可以共享数据；
+
+----------------------------------------------------------
+jdbc方式编程访问：
+
+（1）maven添加依赖：org.spark-project.hive#hive-jdbc
+
+<dependency>
+	<groupId>org.spark-project.hive</groupId>
+	<artifactId>hive-jdbc</artifactId>
+	<version>1.2.1.spark2</version>
+</dependency>
+
+（2）开发代码访问thriftserver中的数据
+
+SparkSQLThriftServerApp{
+
+	def main(args:Array[string]){
+	
+		Class.forName("org.apache.hive.jdbc.HiveDriver")
+		val conn = DriverManager.getConnection("jdbc:hive2://xxx:14000","机器名"，“密码”)
+	    val pstmt =conn.prepareStatement("select empno,ename,sal from emp")
+		val rs = pstmt.executeQuery()
+		while(rs.next()){
+			println("empno"+rs.getInt("empno")+","+rs.getString("ename"))
+		}
+		rs.close()
+		pstmt.close()
+		conn.close()
+	}
+	
+}
+
+注意事项：在使用jdbc开发时，一定要先启动thriftserver
+Exception in thread "main" java.sql.SQLException: 
+Could not open client transport with JDBC Uri: jdbc:hive2://hadoop001:14000: 
+java.net.ConnectException: Connection refused
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

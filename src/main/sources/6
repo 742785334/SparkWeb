@@ -1,0 +1,126 @@
+DataFrame特点：
+DataFrame它不是Spark SQL提出的，而是早起在R、Pandas语言就已经有了的。
+
+
+A Dataset is a distributed collection of data：分布式的数据集
+
+A DataFrame is a Dataset organized into named columns. 
+以列（列名、列的类型、列值）的形式构成的分布式数据集，按照列赋予不同的名称
+RDD with schema
+
+student
+id:int
+name:string
+city:string
+
+
+It is conceptually equivalent to a table in a relational database 
+or a data frame in R/Python
+------------------------------------------------------------------
+DataFrame & RDD 的区别
+
+RDD： 
+	java/scala  ==> 底层：jvm
+	python ==> 底层：python runtime
+
+
+DataFrame:
+	java/scala/python ==> 底层：Logic Plan（执行计划，不管什么语言执行性能相同）
+
+--------------------------------------------------------------------
+DataFrame基本API常用操作
+（1）create DataFrame
+（2）printSchema
+（3）show
+（4）select
+（5）filter
+（6）groupBy
+
+
+DataFrame和RDD互操作的两种方式：
+1）反射：case class   前提：事先需要知道你的字段、字段类型（schema的构成）    
+2）编程：Row          如果第一种情况不能满足你的要求（事先不知道列）
+3) 选型：优先考虑第一种
+
+DataFrameRDDApp
+{
+	def main(args:Array[String]){
+		val spark = SparkSession.builder().appName("DataFrameApp").master("local[2]").getOrCreate()
+		
+		//RDD-->DataFrame
+		val rdd = spark.sparkContext.textFile("file://info.txt")
+		
+		//需要导入隐式转换
+		import spark.implicitis._
+		val infoDF = rdd.map(_.split(",")).map(line => Info(line(0).toInt, line(1), line(2).toInt)).toDF()
+		
+		//（1）dataFrame方式编程
+		infoDF.show
+		
+		infoDF.filter(infoDF.col("age")>30).show
+		
+		//（2）SparkSQL方式编程
+		infoDF.createOrReplaceTempView("infos")
+		spark.sql("select * from infos where age>30").show()
+		
+		spark.stop()
+	
+	}
+	
+	case class Info(id:Int,name:String,age:Int)
+
+}
+----------------------------------------------------------------------
+数据：student.data
+（1）val rdd = spark.sparkContext.textFile("file:///home/hadoop/data/student.data")
+
+（2）case class Student(id:Int,name:String,phone:String,email:String)
+
+（3）...
+
+（4）studentDF.show(30,false)
+//studentDF.take(10).foreach(println)
+//studentDF.first()
+//studentDF.head(3)
+//studentDF.filter("name='' OR name = 'NULL'").show
+//sutdentDF.filter("SUBSTR(name,0,1)='M'").show
+//studentDF.sort(studentDF("name").desc).show
+//studentDF.sort("name","id").show
+//studentDF.select(studentDF("name").as("student_name")).show
+//A.join(B,A.col("xx") === B.col("yy"))//默认inner join
+
+DataFrame = Dataset[Row]
+Dataset：强类型  typed  case class 支持lambda表达式
+DataFrame：弱类型   Row
+
+DataSet操作：
+	//隐式转换
+	import spark.implicits._
+	
+	val path="file://sales.csv"
+	val df = spark.read.option("header","true").option("inferSchema","true").csv(path)
+    
+	//df-->ds
+	val ds = df.as[Sales]
+	ds.map(line=>line.itemId).show
+	
+	
+	case class Sales(transactionId:Int,cusomerId:Int,itemId:Int,amountPaid:Double)
+
+SQL: 
+	seletc name from person;  【compile  ok, result no】
+
+DF:
+	df.select("name")  compile no
+	df.select("nname")  compile ok  语句错了，但是属性错了，但是编译还是通过的
+
+DS:
+	ds.map(line => line.itemid)  compile no
+	
+	
+作业：RDD,DataFrame，DataSet之间的区别:
+答：【RDD】Spark框架的RDD本身不了解存储的内部结构
+	【DataFrame】提供了详细的结构信息（schema，分布式的Row对象集合）
+	【DataSet】是DataFrame的一个特例，DataSet每一个Record存储的是一个强类型值，而不是一个Row
+	因此，DataSet可以在编译时检查类型
+

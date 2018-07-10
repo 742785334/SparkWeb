@@ -1,0 +1,71 @@
+spark:计算框架（速度，易用，通用性）
+Mapreduce是进程级别的，Spark是线程级别的
+
+Spark生态系统：DBAS
+Mesos，HDFS，Tachyon（基于内存的文件系统），Spark（核心）
+自框架：Spark Streaming，GraphX，MLib，SparkSQL
+外部交互：Hive，Storm，MPI
+
+spark可用语言：python，scala，java，R
+spak运行模式：standalone，Yarn，Mesos，local
+
+安装scala
+1）tar
+2）vi ~/.bash_profile
+	export SCALA_HOME=/home/hadoop/app/scala-2.11.8
+	export PATH=$SCALA_HOME/bin:$PATH
+3)source
+4)scala启动
+
+Spark编译过程..
+Spark 2.1.0，source code 下载
+cd bin 目录：spark启动：./spark-shell --master local[2]
+
+spark实现wc：
+val file = sc.textFile("file:///root/hello.txt")//a.collect输出
+val a = file.flatMap(line => line.split(" "))
+val b = a.map(word => (word,1))
+//Array((hadoop,1), (welcome,1), (hadoop,1), (hdfs,1), (mapreduce,1), (hadoop,1), (hdfs,1))
+
+val c = b.reduceByKey(_ + _)
+//Array((mapreduce,1), (welcome,1), (hadoop,3), (hdfs,2))
+
+
+sc.textFile("file:///home/hadoop/data/hello.txt").flatMap(line => line.split(" ")).map(word => (word,1)).reduceByKey(_ + _).collect
+
+监控页面：localhost:4040
+
+Flink安装
+Flink运行
+启动：bin/start.local.sh
+./bin/flink run ./examples/batch/WordCount.jar \
+--input file:///home/hadoop/data/hello.txt --output file:///home/hadoop/tmp/flink_wc_output
+
+查看：localhost:8081
+
+Beam：将批处理（Spark，Flink）和流处理运行在执行引擎上
+
+Beam运行：
+1）#direct方式运行
+mvn compile exec:java -Dexec.mainClass=org.apache.beam.examples.WordCount \
+-Dexec.args="--inputFile=/home/hadoop/data/hello.txt --output=counts" \
+-Pdirect-runner
+
+2）#spark方式运行
+mvn compile exec:java -Dexec.mainClass=org.apache.beam.examples.WordCount \
+-Dexec.args="--runner=SparkRunner --inputFile=/home/hadoop/data/hello.txt --output=counts" -Pspark-runner
+
+
+3）#flink方式运行
+
+
+
+
+
+
+
+
+
+
+
+

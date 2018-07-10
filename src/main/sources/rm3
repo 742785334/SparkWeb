@@ -1,0 +1,219 @@
+HDFS架构
+
+1 Master(NameNode/NN)  带 N个Slaves(DataNode/DN)
+HDFS/YARN/HBase
+
+1个文件会被拆分成多个Block
+blocksize：128M
+130M ==> 2个Block： 128M 和 2M
+
+NN：
+1）负责客户端请求的响应
+2）负责元数据（文件的名称、副本系数、Block存放的DN）的管理
+
+DN：
+1）存储用户的文件对应的数据块(Block)
+2）要定期向NN发送心跳信息，汇报本身及其所有的block信息，健康状况
+
+A typical deployment has a dedicated machine that runs only the NameNode software. 
+Each of the other machines in the cluster runs one instance of the DataNode software.
+The architecture does not preclude running multiple DataNodes on the same machine 
+but in a real deployment that is rarely the case.
+
+NameNode + N个DataNode
+建议：NN和DN是部署在不同的节点上
+
+
+replication factor：副本系数、副本因子
+
+All blocks in a file except the last block are the same size
+
+Hadoop伪分布式安装步骤
+1）jdk安装
+	解压：tar -zxvf jdk-7u79-linux-x64.tar.gz -C ~/app
+	添加到系统环境变量： ~/.bash_profile
+		export JAVA_HOME=/home/hadoop/app/jdk1.7.0_79
+		export PATH=$JAVA_HOME/bin:$PATH
+	使得环境变量生效： source ~/.bash_profile
+	验证java是否配置成功： java -v
+
+2）安装ssh
+	sudo yum install ssh
+	ssh-keygen -t rsa
+	cp ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys	
+	chmod 600 ~/.ssh/authorized_keys
+	
+	ll  以点开头的文件是隐藏的 ls -al
+	测试：ssh localhost
+
+3）下载并解压hadoop
+	下载：直接去cdh网站下载
+	解压：tar -zxvf hadoop-2.6.0-cdh5.7.0.tar.gz -C ~/app
+
+4）hadoop配置文件的修改(hadoop_home/etc/hadoop)
+	hadoop-env.sh
+		export JAVA_HOME=/home/hadoop/app/jdk1.7.0_79
+
+	core-site.xml
+		<property>
+	        <name>fs.defaultFS</name>
+	        <value>hdfs://hadoop000:8020</value>
+	    </property>
+
+	    <property>
+	        <name>hadoop.tmp.dir</name>
+	        <value>/home/hadoop/app/tmp</value>
+	    </property>
+
+	hdfs-site.xml
+		<property>
+	        <name>dfs.replication</name>
+	        <value>3</value>
+	    </property>
+
+	slaves   配置datanode的hostname
+
+5）启动hdfs
+	格式化文件系统（仅第一次执行即可，不要重复执行）：在bin目录下执行 ./hdfs（或hadoop） namenode -format
+	启动hdfs: sbin目录下 ./start-dfs.sh
+	验证是否启动成功：
+		jps
+			DataNode
+			SecondaryNameNode
+			NameNode
+
+		浏览器访问方式： http://hadoop000:50070
+
+6）停止hdfs
+	sbin/stop-dfs.sh 
+
+【问题】阿里云由于内部使用内网连接，会导致文件上传过程中出现以下问题：
+File /hdfsapi/test/a.txt could only be replicated to 0 nodes instead of minReplication (=1)
+客户端操作hdfs时候先连接namenode，然后namenode分配给客户端一个datanoe的ip地址，
+如果这个ip地址客户端无法访问到，就会被客户端添加到排除列表中
+解决办法：
+	    configuration.set("dfs.client.use.datanode.hostname", "true");//让可以使用主机名传参数
+        configuration.set("fs.defaultFS", "hdfs://iz2zef94dnmkl8kf3l63r9z:8020");//主机名访问
+		C:\Windows\System32\drivers\etc\host文件：39.105.95.154 iz2zef94dnmkl8kf3l63r9z
+	
+配置hadoop目录
+vim ~/.bash_profile(/etc/profile)
+	export HADOOP_HOME=/root/app/hadoop-2.6.0-cdh5.7.0
+	export PATH=$HADOOP_HOME/bin:$PATH
+source ~/.bash_profile
+	
+Hadoop shell的基本使用(ls等)
+hdfs dfs
+hadoop fs 
+
+测试部分：
+vi hello.txt
+hadoop fs -put hello.txt /
+hadoop fs -ls /
+hadoop fs -text /hello.txt
+hadoop fs -mkdir /test
+hadoop fs -mkdir -p /test/a
+hadoop fs -ls -R /
+hadoop fs -copyFromLocal hello.txt /test/a/h.txt
+hadoop fs -get /test/a/h.txt
+hadoop fs -rm /h.txt
+1）
+project添加hadoop依赖
+<dependencies>
+    <dependency>
+        <groupId>org.apache.hadoop</groupId>
+        <artifactId>hadoop-client</artifactId>
+        <version>${hadoop.version}</version>
+    </dependency>
+</dependencies>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <hadoop.version>2.6.0-cdh5.7.0</hadoop.version>
+    </properties>
+    <repositories>
+        <repository>
+            <id>cloudera</id>
+            <url>https://repository.cloudera.com/artifactory/cloudera-repos</url>
+        </repository>
+    </repositories>
+
+2）
+public static final String HDFS_PATH="hdfs://hadoop000:8020";
+Configuration configuration=null;
+FileSystem fileSystem=FileSystem.get(new URI(HDFS_PATH),configuration,用户名);
+
+3）
+创建HDFS目录  fileSystem.mkdirs(new Path("/hdfsapi/test "))；
+创建文件      FSDataOutputStream output = fileSystem.create(new Path("/hdfsapi/test/a.txt"));
+              output.write("hello".getBytes());
+			  output.flush();
+			  output.close();
+查看内容      FSDataInputStream in = fileSystem.open(new Path("/hdfsapi/test/a.txt"));
+			  IOUtils.copyBytes(in,System.out,1024);
+			  in.close;
+重命名        fileSystem.rename(src,des); 
+上传文件到HDFS fileSystem.copyFromLocalFile(src,des); 
+上传带进度条   InputStram in =new BufferedInputStream(new FileInputStream(new File(path)));
+               FSDataOutputStream output = fileSystem.create(new Path("/hdfsapi/test/a.txt") new Progressabel(){});
+               IOUtils.copyBytes(in,output,4096);
+下载到本地     fileSystem.copyToLocalFile(src,des);
+展示所有文件
+				FileStatus[] fileStatus = fileSystem.listStatus(new Path())
+删除文件         fileSystem.delete(new Path(src,boolean));
+Java API操作HDFS文件
+文件	1	311585484	hdfs://hadoop000:8020/hadoop-2.6.0-cdh5.7.0.tar.gz
+文件夹	0	0	hdfs://hadoop000:8020/hdfsapi
+文件	1	49	hdfs://hadoop000:8020/hello.txt
+文件	1	40762	hdfs://hadoop000:8020/install.log
+
+问题：我们已经在hdfs-site.xml中设置了副本系数为1，为什么此时查询文件看到的3呢？
+如果你是通过hdfs shell的方式put的上去的那么，才采用默认的副本系数1
+ 如果我们是java api上传上去的，在本地我们并没有手工设置副本系数，所以否则采用的是hadoop自己的副本系数
+
+ HDFS优点：
+ 数据冗余、硬件容错
+ 处理流式数据访问
+ 适合存储大文件
+ 可以运行在廉价设备上
+ 
+ HDFS缺点：
+ 低延迟数据访问
+ 不适合小文件存储
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

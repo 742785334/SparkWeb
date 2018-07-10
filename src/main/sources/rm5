@@ -1,0 +1,237 @@
+MapReduce优点:海量数据离线处理，易开发，易运行
+		 缺点：实时流式计算
+		  
+wordcount: 统计文件中每个单词出现的次数
+
+需求：求wc
+1) 文件内容小：shell
+cat hello.txt | sed 's/[,.:;/!?]/ /g' | awk '{for(i=1;i<NF;i++)array[$i]++;}END{for(i in array) print i,array[i]}'
+2）文件内容很大： TB GB   ???? 如何解决大数据量的统计分析
+
+==> url的  TOP N <== wc的延伸 
+工作中很多场景的开发都是wc的基础上进行改造的
+
+
+借助于分布式计算框架来解决了： mapreduce
+
+分而治之
+
+(input) <k1, v1> -> map -> <k2, v2> -> combine -> <k2, v2> -> reduce -> <k3, v3> (output)
+
+核心概念
+1)Split：交由MapReduce作业来处理的数据块，是MapReduce中最小的【计算单元】
+	HDFS：blocksize 是HDFS中最小的【存储单元】  128M
+	默认情况下：他们两是一一对应的，当然我们也可以手工设置他们之间的关系（不建议）
+
+
+2)InputFormat：
+（RecordReader）
+	将我们的输入数据进行分片(split):  InputSplit[] getSplits(JobConf job, int numSplits) throws IOException;
+	TextInputFormat: 处理文本格式的数据
+
+3)OutputFormat: 输出
+（RecordWriter）
+
+4)Combiner
+5)Partitioner
+
+
+MapReduce1.x的架构
+1）JobTracker: JT
+	作业的管理者      管理的
+	将作业分解成一堆的任务：Task（MapTask和ReduceTask）
+	将任务分派给TaskTracker运行
+	作业的监控、容错处理（task作业挂了，重启task的机制）
+	在一定的时间间隔内，JT没有收到TT的心跳信息，TT可能是挂了，TT上运行的任务会被指派到其他TT上去执行
+
+2）TaskTracker: TT
+	任务的执行者      干活的
+	在TT上执行我们的Task（MapTask和ReduceTask）
+	会与JT进行交互：执行/启动/停止作业，发送心跳信息给JT
+
+3）MapTask
+	自己开发的map任务交由该Task出来
+	解析每条记录的数据，交给自己的map方法处理
+	将map的输出结果写到本地磁盘（有些作业只仅有map没有reduce==>HDFS）
+
+4）ReduceTask
+	将Map Task输出的数据进行读取
+	按照数据进行分组传给我们自己编写的reduce方法处理
+	输出结果写到HDFS
+
+MapReduce2.x的架构
+ResourceManager: Application Manager + Resource Scheduler
+Node Manager: Map Task、Container
+Client
+
+开发程序
+class {
+public static class MyMapper extends Mapper<LongWritable,Text,Text,LongWritable>{
+//..map(LongWritable key, Text value, Context context)//每一行偏移量，字符串,上下文
+	｛
+		String line=value.toString();
+		String[] words=line.split(" ");
+		for(String word: words){
+			//map过程
+			context.write(new Text(word),new LongWritable(1));
+		}
+	｝
+}
+
+public static class MyReducer extends Reducer<Text, LongWritable, Text, LongWritable>{
+//..reduce(Text key, Iterable<LongWritable> values, Context context)
+    ｛
+		long sum=0;
+		for(LongWritable value:values){
+			sum+=value.get();
+		}
+		//最终统计结果
+		context.write(key,new LongWritable(sum));
+	｝
+}
+
+main｛
+	Configuration configuration = new Configuration();
+	Job job = Job.getInstance(configuration,"wordcount");
+	//设置job处理类
+	job.setJarByClass(xxx.class);
+	FileInputFormat.setInputPaths(job, new Path(args[0]));//设置输入路径
+	
+	//设置map相关参数
+	job.setMapperClass(xxx.class);
+	job.setMapOutputKeyClass(Text.class);
+	job.setMapOutputValueClass(LongWritable.class);
+	
+	//设置reduce相关参数
+	job.setReducer(xxx.class);
+	job.setOutputKeyClass(Text.class);
+	job.setOutputKeyClass(LongWritable.class);
+	
+	//设置作业的输出路径
+	FileOutputFormat.setOutputPath(job, new Path(args[1]));
+	
+	System.exit(job.waitForCompletion(true)?0:1);
+｝
+}
+
+开发完打包jar包
+使用IDEA+Maven开发wc：
+1）开发 
+2）编译：mvn clean package -DskipTests
+3）上传到服务器：scp target/hadoop-train-1.0.jar hadoop@hadoop000:~/lib
+4）运行
+	hadoop jar ~/HadoopApp-1.0-SNAPSHOT.jar MapReduceApp hdfs://iz2zef94dnmkl8kf3l63r9z:8020/hello.txt hdfs://iz2zef94dnmkl8kf3l63r9z:8020/output/wc
+
+	
+	
+	【常见异常】相同的代码和脚本再次执行，会报错
+	security.UserGroupInformation:
+	PriviledgedActionException as:hadoop (auth:SIMPLE) cause:
+	org.apache.hadoop.mapred.FileAlreadyExistsException: 
+	Output directory hdfs://hadoop000:8020/output/wc already exists
+	Exception in thread "main" org.apache.hadoop.mapred.FileAlreadyExistsException: 
+	Output directory hdfs://hadoop000:8020/output/wc already exists
+
+	【异常原因】在MR中，输出文件是不能事先存在的
+	1）先手工通过shell的方式将输出文件夹先删除
+		hadoop fs -rm -r /output/wc
+	2) 在代码中完成自动删除功能: 推荐大家使用这种方式
+	    Path outputPath = new Path(args[1]);
+	    FileSystem fileSystem = FileSystem.get(configuration);
+	    if(fileSystem.exists(outputPath)){
+	        fileSystem.delete(outputPath, true);
+	        System.out.println("output file exists, but is has deleted");
+	    }
+
+Combiner：在map本地先做一次reduce
+特点：减少Map Task输出的数量以及数据网络传输量
+CombinerApp
+	//通过job设置combiner处理类
+	job.setCombineClass(xxx.class);
+
+hadoop jar /home/hadoop/lib/hadoop-train-1.0.jar com.imooc.hadoop.mapreduce.CombinerApp hdfs://hadoop000:8020/hello.txt hdfs://hadoop000:8020/output/wc
+hadoop jar ~/HadoopApp-1.0-SNAPSHOT.jar MapReduceApp hdfs://iz2zef94dnmkl8kf3l63r9z:8020/hello.txt hdfs://iz2zef94dnmkl8kf3l63r9z:8020/output/wc
+
+使用场景：（Combiner只适合一些场景）
+	求和、次数   只需要+，可以使用 
+	平均数  X    不可以使用
+
+
+Partitioner
+决定MapTask输出数据交到哪个ReduceTask处理
+默认实现：分发的key的hash值对Reduce Task个数取模
+PartitionerApp
+	public static class MyPartitioner extends Partitioner<Text,LongWritable>{
+		
+		getPartion方法
+		｛
+			if(key.toString().equals("ss")){
+				return 1;
+			}
+			......
+		｝
+	}
+	
+	//设置job的Partitioner
+	job.setPartitionerClass(xxx.class);
+	job.setNumReduceTasks(4);
+
+hadoop jar /home/hadoop/lib/hadoop-train-1.0.jar com.imooc.hadoop.mapreduce.ParititonerApp hdfs://hadoop000:8020/partitioner hdfs://hadoop000:8020/output/partitioner
+结果分别查看
+
+jobhistory
+	记录已经运行完的MapReduce信息到指定的HDFS下
+	默认是不开启的
+
+配置mapred-site.xml
+
+<property>
+<name>mapreduce.jobhistory.address</name>
+<value>iz2zef94dnmkl8kf3l63r9z:10020</value>
+<description>MapReduce JobHistory Server IPC host:port</description>
+</property>
+
+<property>
+<name>mapreduce.jobhistory.webapp.address</name>
+<value>iz2zef94dnmkl8kf3l63r9z:19888</value>
+<description>MapReduce JobHistory Server Web UI host:port</description>
+</property>
+
+<property>
+<name>mapreduce.jobhistory.done-dir</name>
+<value>/job/history/done</value>
+</property>
+
+<property>
+<name>mapreduce.jobhistory.intermediate-done-dir</name>
+<value>/job/history/done_intermediate</value>
+</property>
+
+聚合功能打开
+vi yarn-site.xml
+<property>
+<name>yarn.log-aggregation-enable</name>
+<value>true</value>
+</property>
+
+
+重启yarn
+sbin目录下启动history功能./mr-jobhistory-daemon.sh start historyserver
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
